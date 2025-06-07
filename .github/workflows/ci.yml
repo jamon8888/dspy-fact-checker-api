@@ -1,0 +1,324 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:6
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tesseract-ocr tesseract-ocr-eng libpq-dev
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-testing.txt
+    
+    - name: Set up environment
+      run: |
+        cp .env.production .env
+        echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db" >> .env
+        echo "REDIS_URL=redis://localhost:6379/0" >> .env
+        echo "SECRET_KEY=test-secret-key-for-ci" >> .env
+        echo "ENVIRONMENT=testing" >> .env
+        echo "LOG_LEVEL=DEBUG" >> .env
+    
+    - name: Initialize database
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: test-secret-key-for-ci
+      run: |
+        python scripts/init_database.py
+    
+    - name: Run unit tests
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: test-secret-key-for-ci
+        MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        pytest tests/ -v --cov=app --cov-report=xml --cov-report=html
+    
+    - name: Run integration tests
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: test-secret-key-for-ci
+        MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      run: |
+        pytest tests/test_api_endpoints.py -v
+    
+    - name: Run OCR integration tests
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: test-secret-key-for-ci
+        MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      run: |
+        pytest tests/test_ocr_integration.py -v
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: |
+          htmlcov/
+          coverage.xml
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install black isort flake8 mypy
+        pip install -r requirements.txt
+    
+    - name: Run Black
+      run: black --check app/
+    
+    - name: Run isort
+      run: isort --check-only app/
+    
+    - name: Run flake8
+      run: flake8 app/
+    
+    - name: Run mypy
+      run: mypy app/
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit safety
+        pip install -r requirements.txt
+    
+    - name: Run Bandit security scan
+      run: |
+        bandit -r app/ -f json -o bandit-report.json || true
+    
+    - name: Run Safety check
+      run: |
+        safety check --json --output safety-report.json || true
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          safety-report.json
+
+  build:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Docker image
+      run: |
+        docker build -t dspy-fact-checker:latest .
+    
+    - name: Test Docker image
+      run: |
+        docker run --rm dspy-fact-checker:latest python -c "import app.main; print('Docker build successful')"
+    
+    - name: Save Docker image
+      run: |
+        docker save dspy-fact-checker:latest | gzip > dspy-fact-checker.tar.gz
+    
+    - name: Upload Docker image artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: docker-image
+        path: dspy-fact-checker.tar.gz
+
+  production-readiness:
+    needs: [test, lint, security]
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:6
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-testing.txt
+    
+    - name: Set up environment
+      run: |
+        cp .env.production .env
+        echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db" >> .env
+        echo "REDIS_URL=redis://localhost:6379/0" >> .env
+        echo "SECRET_KEY=test-secret-key-for-ci" >> .env
+        echo "ENVIRONMENT=testing" >> .env
+    
+    - name: Run production readiness test
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: test-secret-key-for-ci
+        MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      run: |
+        python scripts/production_readiness_test.py
+    
+    - name: Upload readiness report
+      uses: actions/upload-artifact@v3
+      with:
+        name: production-readiness-report
+        path: production-readiness-report.json
+
+  deploy-staging:
+    needs: [build, production-readiness]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to staging
+      run: |
+        echo "Deploying to staging environment..."
+        # Add your staging deployment commands here
+        # Example: kubectl apply -f deployment/k8s/staging/
+    
+    - name: Run staging tests
+      run: |
+        echo "Running staging environment tests..."
+        # Add staging environment tests here
+
+  deploy-production:
+    needs: [build, production-readiness]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production environment..."
+        # Add your production deployment commands here
+        # Example: kubectl apply -f deployment/k8s/production/
+    
+    - name: Run production smoke tests
+      run: |
+        echo "Running production smoke tests..."
+        # Add production smoke tests here
+    
+    - name: Notify deployment
+      run: |
+        echo "Production deployment completed successfully!"
+        # Add notification logic (Slack, email, etc.)

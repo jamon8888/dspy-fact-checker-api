@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: fact-checker
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: fast-ssd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: fact-checker
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        command:
+        - redis-server
+        - /etc/redis/redis.conf
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        volumeMounts:
+        - name: redis-storage
+          mountPath: /data
+        - name: redis-config
+          mountPath: /etc/redis
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: redis-storage
+        persistentVolumeClaim:
+          claimName: redis-pvc
+      - name: redis-config
+        configMap:
+          name: redis-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: fact-checker
+data:
+  redis.conf: |
+    # Redis Configuration
+    bind 0.0.0.0
+    port 6379
+    
+    # Authentication
+    requirepass ${REDIS_PASSWORD}
+    
+    # Persistence
+    save 900 1
+    save 300 10
+    save 60 10000
+    
+    # Memory Management
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+    
+    # Logging
+    loglevel notice
+    
+    # Security
+    protected-mode yes
+    
+    # Performance
+    tcp-keepalive 300
+    timeout 0
+    
+    # Append Only File
+    appendonly yes
+    appendfsync everysec
+    
+    # Disable dangerous commands
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    rename-command DEBUG ""
+    rename-command CONFIG ""
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: fact-checker
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+  selector:
+    app: redis

@@ -1,0 +1,110 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Documentation
+docs/
+*.md
+README.md
+LICENSE
+
+# Development files
+.taskmaster/
+tests/
+test_*.py
+*_test.py
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Logs
+logs/
+*.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Kubernetes
+deployment/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Environment files (keep .env.example)
+.env
+.env.local
+.env.development
+.env.production
+
+# Uploads and user data
+uploads/
+user_data/
+static/uploads/
+
+# Backup files
+*.bak
+*.backup

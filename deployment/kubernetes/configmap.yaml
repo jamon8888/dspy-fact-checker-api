@@ -1,0 +1,150 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fact-checker-config
+  namespace: fact-checker
+data:
+  # Application Configuration
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  
+  # Database Configuration
+  DATABASE_URL: "postgresql://fact_checker:password@postgres:5432/fact_checker_db"
+  DATABASE_POOL_SIZE: "20"
+  DATABASE_MAX_OVERFLOW: "30"
+  
+  # Redis Configuration
+  REDIS_URL: "redis://redis:6379/0"
+  REDIS_MAX_CONNECTIONS: "20"
+  
+  # API Configuration
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  API_WORKERS: "4"
+  
+  # Security Configuration
+  CORS_ORIGINS: "https://fact-checker.com,https://api.fact-checker.com"
+  ALLOWED_HOSTS: "fact-checker.com,api.fact-checker.com"
+  
+  # External Services
+  OPENAI_API_BASE: "https://api.openai.com/v1"
+  ANTHROPIC_API_BASE: "https://api.anthropic.com"
+  
+  # Monitoring Configuration
+  METRICS_ENABLED: "true"
+  HEALTH_CHECK_INTERVAL: "30"
+  ALERT_WEBHOOK_URL: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+  
+  # Feature Flags
+  ENABLE_DOCUMENT_PROCESSING: "true"
+  ENABLE_URL_PROCESSING: "true"
+  ENABLE_OPTIMIZATION: "true"
+  ENABLE_BILLING: "true"
+  
+  # Rate Limiting
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_REQUESTS_PER_MINUTE: "100"
+  
+  # File Storage
+  STORAGE_TYPE: "s3"
+  S3_BUCKET: "fact-checker-documents"
+  S3_REGION: "us-west-2"
+  
+  # Email Configuration
+  EMAIL_PROVIDER: "sendgrid"
+  EMAIL_FROM: "noreply@fact-checker.com"
+  
+  # Backup Configuration
+  BACKUP_ENABLED: "true"
+  BACKUP_SCHEDULE: "0 2 * * *"  # Daily at 2 AM
+  BACKUP_RETENTION_DAYS: "30"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: fact-checker
+data:
+  nginx.conf: |
+    upstream fact_checker_backend {
+        server fact-checker-api:8000;
+    }
+    
+    server {
+        listen 80;
+        server_name fact-checker.com api.fact-checker.com;
+        
+        # Redirect HTTP to HTTPS
+        return 301 https://$server_name$request_uri;
+    }
+    
+    server {
+        listen 443 ssl http2;
+        server_name fact-checker.com api.fact-checker.com;
+        
+        # SSL Configuration
+        ssl_certificate /etc/ssl/certs/tls.crt;
+        ssl_certificate_key /etc/ssl/private/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+        
+        # Security Headers
+        add_header X-Frame-Options DENY;
+        add_header X-Content-Type-Options nosniff;
+        add_header X-XSS-Protection "1; mode=block";
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
+        
+        # Rate Limiting
+        limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+        limit_req zone=api burst=20 nodelay;
+        
+        # Client Max Body Size
+        client_max_body_size 50M;
+        
+        # Proxy Configuration
+        location / {
+            proxy_pass http://fact_checker_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # Timeouts
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 60s;
+            proxy_read_timeout 60s;
+        }
+        
+        # Health Check Endpoint
+        location /health {
+            proxy_pass http://fact_checker_backend/api/v1/health;
+            access_log off;
+        }
+        
+        # Static Files (if any)
+        location /static/ {
+            alias /var/www/static/;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+        
+        # API Documentation
+        location /docs {
+            proxy_pass http://fact_checker_backend/docs;
+        }
+        
+        # Monitoring Endpoints (restricted)
+        location /api/v1/monitoring/ {
+            allow 10.0.0.0/8;
+            allow 172.16.0.0/12;
+            allow 192.168.0.0/16;
+            deny all;
+            
+            proxy_pass http://fact_checker_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }

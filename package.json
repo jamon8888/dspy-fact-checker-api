@@ -1,0 +1,21 @@
+{
+  "name": "fact-checker",
+  "private": true,
+  "scripts": {
+    "build": "turbo build",
+    "dev": "concurrently --names \"AGENT,WEB\" --prefix-colors \"blue,green\" --kill-others-on-fail --handle-input \"langgraph dev --no-browser\" \"turbo dev --filter=!extension\"",
+    "dev:ext": "concurrently --names \"AGENT,WEB\" --prefix-colors \"blue,green\" --kill-others-on-fail --handle-input \"langgraph dev --no-browser\" \"turbo dev\"",
+    "setup:dev": "pnpm install && cd apps/fact-checker && poetry install && cd ../..",
+    "backend:dev": "langgraph dev --no-browser",
+    "frontend:dev": "turbo dev --filter=web"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "turbo": "^2.5.3"
+  },
+  "packageManager": "pnpm@10.11.0"
+}

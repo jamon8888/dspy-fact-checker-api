@@ -1,0 +1,35 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "extends": ["ultracite"],
+  "files": {
+    "ignore": ["node_modules", "dist", "build", "public", ".next"]
+  },
+  "linter": {
+    "rules": {
+      "suspicious": {
+        "noConsole": "off"
+      },
+      "style": {
+        "useBlockStatements": "off"
+      },
+      "correctness": {
+        "noUndeclaredVariables": "off"
+      },
+      "a11y": {
+        "useValidAnchor": "off"
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "off"
+      },
+      "nursery": {
+        "noNestedTernary": "off"
+      }
+    }
+  },
+  "javascript": {
+    "globals": ["Liveblocks"],
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  }
+}

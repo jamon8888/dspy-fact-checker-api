@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fact-checker
+  labels:
+    name: fact-checker
+    environment: production
+    app: dspy-fact-checker
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: fact-checker-quota
+  namespace: fact-checker
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    persistentvolumeclaims: "10"
+    services: "10"
+    secrets: "10"
+    configmaps: "10"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: fact-checker-limits
+  namespace: fact-checker
+spec:
+  limits:
+  - default:
+      cpu: "1"
+      memory: "2Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "256Mi"
+    type: Container

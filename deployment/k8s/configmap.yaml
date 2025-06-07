@@ -1,0 +1,252 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fact-checker-config
+  namespace: fact-checker
+  labels:
+    app: dspy-fact-checker
+    component: config
+data:
+  # Application configuration
+  ENVIRONMENT: "production"
+  APP_NAME: "DSPy-Enhanced Fact-Checker API Platform"
+  VERSION: "1.0.0"
+  DEBUG: "false"
+  
+  # Database configuration
+  DATABASE_HOST: "postgres-service"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "fact_checker_prod"
+  DATABASE_ECHO: "false"
+  
+  # Redis configuration
+  REDIS_URL: "redis://redis-service:6379/0"
+  CELERY_BROKER_URL: "redis://redis-service:6379/1"
+  CELERY_RESULT_BACKEND: "redis://redis-service:6379/2"
+  
+  # Qdrant configuration
+  QDRANT_URL: "http://qdrant-service:6333"
+  
+  # API configuration
+  RATE_LIMIT_REQUESTS_PER_MINUTE: "100"
+  MAX_FILE_SIZE: "52428800"  # 50MB
+  
+  # Logging configuration
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  
+  # Security configuration
+  ALLOWED_HOSTS: "localhost,127.0.0.1,fact-checker.example.com"
+  CORS_ORIGINS: "https://fact-checker.example.com,https://admin.fact-checker.example.com"
+  
+  # Processing configuration
+  MAX_CONCURRENT_JOBS: "10"
+  JOB_TIMEOUT: "3600"  # 1 hour
+  
+  # Monitoring configuration
+  METRICS_ENABLED: "true"
+  HEALTH_CHECK_INTERVAL: "30"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fact-checker-secrets
+  namespace: fact-checker
+  labels:
+    app: dspy-fact-checker
+    component: secrets
+type: Opaque
+data:
+  # Database credentials (base64 encoded)
+  DATABASE_USER: cG9zdGdyZXM=  # postgres
+  DATABASE_PASSWORD: cGFzc3dvcmQ=  # password
+  
+  # Application secrets (base64 encoded)
+  SECRET_KEY: eW91ci1zZWNyZXQta2V5LWhlcmU=  # your-secret-key-here
+  
+  # API Keys (base64 encoded - replace with actual keys)
+  ANTHROPIC_API_KEY: eW91ci1hbnRocm9waWMtYXBpLWtleQ==  # your-anthropic-api-key
+  OPENAI_API_KEY: eW91ci1vcGVuYWktYXBpLWtleQ==  # your-openai-api-key
+  
+  # JWT secrets (base64 encoded)
+  JWT_SECRET_KEY: and0LXNlY3JldC1rZXk=  # jwt-secret-key
+  
+  # External service credentials (base64 encoded)
+  REDIS_PASSWORD: ""  # empty for no password
+  QDRANT_API_KEY: ""  # empty for no API key
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: fact-checker
+  labels:
+    app: dspy-fact-checker
+    component: postgres
+data:
+  POSTGRES_DB: "fact_checker_prod"
+  POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+  postgresql.conf: |
+    # PostgreSQL configuration for production
+    max_connections = 200
+    shared_buffers = 256MB
+    effective_cache_size = 1GB
+    maintenance_work_mem = 64MB
+    checkpoint_completion_target = 0.9
+    wal_buffers = 16MB
+    default_statistics_target = 100
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    work_mem = 4MB
+    min_wal_size = 1GB
+    max_wal_size = 4GB
+    max_worker_processes = 8
+    max_parallel_workers_per_gather = 2
+    max_parallel_workers = 8
+    max_parallel_maintenance_workers = 2
+    
+    # Logging
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = 'log'
+    log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+    log_statement = 'all'
+    log_min_duration_statement = 1000
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: fact-checker
+  labels:
+    app: dspy-fact-checker
+    component: redis
+data:
+  redis.conf: |
+    # Redis configuration for production
+    maxmemory 1gb
+    maxmemory-policy allkeys-lru
+    save 900 1
+    save 300 10
+    save 60 10000
+    appendonly yes
+    appendfsync everysec
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    tcp-keepalive 300
+    timeout 0
+    tcp-backlog 511
+    databases 16
+    
+    # Security
+    protected-mode yes
+    
+    # Logging
+    loglevel notice
+    logfile ""
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: fact-checker
+  labels:
+    app: dspy-fact-checker
+    component: nginx
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /var/run/nginx.pid;
+    
+    events {
+        worker_connections 1024;
+        use epoll;
+        multi_accept on;
+    }
+    
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        
+        # Logging
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for"';
+        access_log /var/log/nginx/access.log main;
+        
+        # Performance
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        types_hash_max_size 2048;
+        client_max_body_size 50M;
+        
+        # Gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+        
+        # Rate limiting
+        limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+        
+        upstream fact_checker_backend {
+            server app-service:8000;
+            keepalive 32;
+        }
+        
+        server {
+            listen 80;
+            server_name _;
+            
+            # Health check endpoint
+            location /health {
+                proxy_pass http://fact_checker_backend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+            
+            # API endpoints
+            location /api/ {
+                limit_req zone=api burst=20 nodelay;
+                proxy_pass http://fact_checker_backend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_connect_timeout 60s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+            
+            # Documentation
+            location /docs {
+                proxy_pass http://fact_checker_backend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+            
+            # Static files
+            location /static/ {
+                alias /var/www/static/;
+                expires 1y;
+                add_header Cache-Control "public, immutable";
+            }
+            
+            # Default location
+            location / {
+                return 301 /docs;
+            }
+        }
+    }

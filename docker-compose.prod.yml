@@ -1,0 +1,255 @@
+version: '3.8'
+
+services:
+  # Main application service - Production
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: fact-checker-api-prod
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=fact_checker_prod
+      - DATABASE_USER=${DATABASE_USER}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - QDRANT_URL=http://qdrant:6333
+      - SECRET_KEY=${SECRET_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - app_logs:/app/logs
+      - app_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    networks:
+      - fact-checker-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL database - Production
+  postgres:
+    image: postgres:15-alpine
+    container_name: fact-checker-postgres-prod
+    environment:
+      - POSTGRES_DB=fact_checker_prod
+      - POSTGRES_USER=${DATABASE_USER}
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deployment/postgres/init-prod.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./deployment/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - fact-checker-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d fact_checker_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Production
+  redis:
+    image: redis:7-alpine
+    container_name: fact-checker-redis-prod
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_data:/data
+      - ./deployment/redis/redis-prod.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - fact-checker-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Qdrant vector database - Production
+  qdrant:
+    image: qdrant/qdrant:v1.7.0
+    container_name: fact-checker-qdrant-prod
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./deployment/qdrant/config-prod.yaml:/qdrant/config/production.yaml:ro
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__LOG_LEVEL=INFO
+    networks:
+      - fact-checker-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # Celery worker - Production
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: fact-checker-celery-worker-prod
+    command: celery -A app.core.celery worker --loglevel=info --concurrency=4 --max-tasks-per-child=1000
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=fact_checker_prod
+      - DATABASE_USER=${DATABASE_USER}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - QDRANT_URL=http://qdrant:6333
+      - SECRET_KEY=${SECRET_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - app_logs:/app/logs
+      - app_uploads:/app/uploads
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+    networks:
+      - fact-checker-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # Celery beat - Production
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: fact-checker-celery-beat-prod
+    command: celery -A app.core.celery beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=fact_checker_prod
+      - DATABASE_USER=${DATABASE_USER}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=${SECRET_KEY}
+    volumes:
+      - app_logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - fact-checker-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+
+  # Nginx reverse proxy - Production
+  nginx:
+    image: nginx:alpine
+    container_name: fact-checker-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deployment/nginx/nginx-prod.conf:/etc/nginx/nginx.conf:ro
+      - ./deployment/nginx/ssl:/etc/nginx/ssl:ro
+      - app_static:/var/www/static:ro
+    depends_on:
+      - app
+    networks:
+      - fact-checker-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  app_logs:
+    driver: local
+  app_uploads:
+    driver: local
+  app_static:
+    driver: local
+
+networks:
+  fact-checker-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
