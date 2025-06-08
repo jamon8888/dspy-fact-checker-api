@@ -4,7 +4,7 @@ API v1 router configuration for the DSPy-Enhanced Fact-Checker API Platform.
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import health, documents, text, urls, ocr, content_extraction, focused_documents, dspy_fact_checking, enhanced_fact_checking, exa_fact_checking, optimization, auth, billing, monitoring
+from app.api.v1.endpoints import health, documents, text, urls, ocr, content_extraction, focused_documents, dspy_fact_checking, enhanced_fact_checking, optimization, auth, billing, monitoring
 
 
 # Create main API router
@@ -63,12 +63,6 @@ api_router.include_router(
     enhanced_fact_checking.router,
     prefix="/enhanced-fact-check",
     tags=["enhanced-fact-checking"]
-)
-
-api_router.include_router(
-    exa_fact_checking.router,
-    prefix="/exa-fact-check",
-    tags=["exa-fact-checking"]
 )
 
 api_router.include_router(
