@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: Optional[str] = Field(default=None, env="OPENROUTER_API_KEY")
     PERPLEXITY_API_KEY: Optional[str] = Field(default=None, env="PERPLEXITY_API_KEY")
     MISTRAL_API_KEY: Optional[str] = Field(default=None, env="MISTRAL_API_KEY")
+
+    # Search Provider API Keys
+    EXA_API_KEY: Optional[str] = Field(default=None, env="EXA_API_KEY")
+    TAVILY_API_KEY: Optional[str] = Field(default=None, env="TAVILY_API_KEY")
     
     # Document processing settings
     MAX_FILE_SIZE: int = Field(default=50 * 1024 * 1024, env="MAX_FILE_SIZE")  # 50MB
@@ -134,6 +138,29 @@ class Settings(BaseSettings):
     CONTEXT7_TIMEOUT: int = Field(default=30, env="CONTEXT7_TIMEOUT")  # 30 seconds
     CONTEXT7_MAX_RETRIES: int = Field(default=3, env="CONTEXT7_MAX_RETRIES")
     CONTEXT7_ENABLE_CONTEXT_STORAGE: bool = Field(default=True, env="CONTEXT7_ENABLE_CONTEXT_STORAGE")
+
+    # Exa.ai Configuration
+    EXA_BASE_URL: str = Field(default="https://api.exa.ai", env="EXA_BASE_URL")
+    EXA_RATE_LIMIT_CALLS: int = Field(default=100, env="EXA_RATE_LIMIT_CALLS")
+    EXA_RATE_LIMIT_PERIOD: int = Field(default=60, env="EXA_RATE_LIMIT_PERIOD")
+    EXA_TIMEOUT: int = Field(default=30, env="EXA_TIMEOUT")
+    EXA_MAX_RETRIES: int = Field(default=3, env="EXA_MAX_RETRIES")
+
+    # Search Configuration
+    SEARCH_DEFAULT_PROVIDER: str = Field(default="dual", env="SEARCH_DEFAULT_PROVIDER")
+    SEARCH_PARALLEL_ENABLED: bool = Field(default=True, env="SEARCH_PARALLEL_ENABLED")
+    SEARCH_CACHE_TTL: int = Field(default=3600, env="SEARCH_CACHE_TTL")
+    SEARCH_MAX_RESULTS: int = Field(default=10, env="SEARCH_MAX_RESULTS")
+
+    # Hallucination Detection
+    HALLUCINATION_CONFIDENCE_THRESHOLD: float = Field(default=0.7, env="HALLUCINATION_CONFIDENCE_THRESHOLD")
+    HALLUCINATION_DETECTION_ENABLED: bool = Field(default=True, env="HALLUCINATION_DETECTION_ENABLED")
+    HALLUCINATION_CACHE_ENABLED: bool = Field(default=True, env="HALLUCINATION_CACHE_ENABLED")
+
+    # Dual Search Performance
+    DUAL_SEARCH_TIMEOUT: int = Field(default=10, env="DUAL_SEARCH_TIMEOUT")
+    SEARCH_RESULT_AGGREGATION: bool = Field(default=True, env="SEARCH_RESULT_AGGREGATION")
+    INTELLIGENT_ROUTING_ENABLED: bool = Field(default=True, env="INTELLIGENT_ROUTING_ENABLED")
     
     @validator("ENVIRONMENT")
     def validate_environment(cls, v):

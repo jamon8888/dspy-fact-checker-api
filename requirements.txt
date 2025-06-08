@@ -27,6 +27,13 @@ litellm>=1.17.0
 openai>=1.6.0
 anthropic>=0.8.0
 
+# Search providers
+exa-py>=1.0.0
+tavily-python>=0.3.0
+
+# Async utilities
+asyncio-throttle>=1.0.0
+
 # Document processing
 docling>=2.36.0
 docling-core>=1.0.0
